@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.env
+.env.*
+backups
+data
+qa
+test-results
+playwright-report
+*.log
+*.dump
+*.sql
+!prisma/migrations/**/migration.sql
+*.pem
+*.key

@@ -1,0 +1,36 @@
+name: checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: turntable
+          POSTGRES_PASSWORD: ci_ephemeral_only
+          POSTGRES_DB: turntable_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U turntable -d turntable_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Ephemeral test configuration
+        run: |
+          printf 'DATABASE_URL=postgresql://turntable:ci_ephemeral_only@localhost:5432/turntable_test\nAPP_ORIGIN=http://127.0.0.1:3000\nNODE_ENV=development\n' > .env
+      - run: npm run db:migrate
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm run build
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run check:secrets

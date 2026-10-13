@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(uuid())
+  username           String   @unique
+  passwordHash       String
+  role               String   @default("USER")
+  disabled           Boolean  @default(false)
+  mustChangePassword Boolean  @default(false)
+  timerCapMinutes    Int      @default(120)
+  goalTasks          Int?
+  goalMinutes        Int?
+  pendingGoalTasks   Int?
+  pendingGoalMinutes Int?
+  goalEffectiveDay   String?
+  createdAt          DateTime @default(now())
+  sessions           Session[]
+  tasks              Task[]
+  days               Day[]
+  redemptions        InviteRedemption[]
+  operations         Operation[]
+}
+
+model Session {
+  id        String   @id
+  userId    String
+  csrfToken String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Task {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  note      String   @default("")
+  color     String   @default("#a9c4fa")
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     DailyItem[]
+  @@index([userId, archived])
+}
+
+model Day {
+  id          String   @id @default(uuid())
+  userId      String
+  date        String
+  goalTasks   Int?
+  goalMinutes Int?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items       DailyItem[]
+  @@unique([userId, date])
+}
+
+model DailyItem {
+  id          String    @id @default(uuid())
+  dayId       String
+  taskId      String
+  title       String
+  note        String
+  color       String
+  selected    Boolean   @default(true)
+  status      String    @default("PENDING")
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  day         Day       @relation(fields: [dayId], references: [id], onDelete: Cascade)
+  task        Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  segments    Segment[]
+  @@unique([dayId, taskId])
+  @@index([dayId, status])
+}
+
+model Segment {
+  id        String    @id @default(uuid())
+  itemId    String
+  startedAt DateTime
+  endedAt   DateTime?
+  deadline  DateTime
+  item      DailyItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  @@index([itemId])
+}
+
+model Invite {
+  id          String   @id @default(uuid())
+  codeHash    String   @unique
+  codeHint    String
+  startsAt    DateTime
+  expiresAt   DateTime
+  maxUses     Int      @default(1)
+  usedCount   Int      @default(0)
+  disabled    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  redemptions InviteRedemption[]
+}
+
+model InviteRedemption {
+  id        String   @id @default(uuid())
+  inviteId  String
+  userId    String
+  createdAt DateTime @default(now())
+  invite    Invite   @relation(fields: [inviteId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([inviteId, userId])
+}
+
+model Operation {
+  id        String   @id @default(uuid())
+  userId    String
+  key       String
+  kind      String
+  resultId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, key])
+}
+
+model Audit {
+  id        String   @id @default(uuid())
+  action    String
+  createdAt DateTime @default(now())
+}
