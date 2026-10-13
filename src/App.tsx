@@ -34,6 +34,7 @@ import Auth from './Auth';
 import Wheel from './Wheel';
 import Tasks, { TaskDialog } from './Tasks';
 import Settings from './Settings';
+import TaskSelection, { type SelectionChange } from './TaskSelection';
 import useDialogKeyboard from './useDialogKeyboard';
 const Stats = lazy(() => import('./Stats'));
 const Admin = lazy(() => import('./Admin'));
@@ -76,6 +77,9 @@ export default function App() {
     receivedAt.current = Date.now();
     setToday(data);
   }, []);
+  useEffect(() => {
+    if (today && !today.items.length) setShowSelection(true);
+  }, [today?.date]);
   const refresh = useCallback(async () => {
     if (!user || user.mustChangePassword) return;
     const revision = ++generation.current;
@@ -129,10 +133,10 @@ export default function App() {
       if (!document.hidden && !mutationLock.current) void refresh();
     }, 5000);
     const visible = () => {
-      if (!document.hidden) void refresh();
+      if (!document.hidden && !mutationLock.current) void refresh();
     };
     const reconnect = () => {
-      void refresh();
+      if (!mutationLock.current) void refresh();
     };
     const disconnect = () => setOffline(true);
     document.addEventListener('visibilitychange', visible);
@@ -203,13 +207,34 @@ export default function App() {
       new Date(active.runningDeadline).getTime() - new Date(today!.serverTime).getTime();
   const totalSeconds = today?.items.reduce((sum, i) => sum + liveSeconds(i), 0) ?? 0;
   async function select(taskId: string, selected: boolean) {
-    if (selected) setShowSelection(true);
     await mutate(async () => {
       applyToday(await api<Today>('/today/selection', 'PUT', { taskId, selected }));
     });
   }
+  async function saveSelection(date: string, changes: SelectionChange[]) {
+    if (mutationLock.current || offline) throw new Error('请等待当前操作完成，或恢复网络后再试');
+    if (!changes.length) {
+      setShowSelection(false);
+      return;
+    }
+    mutationLock.current = true;
+    setBusy(true);
+    generation.current++;
+    try {
+      const data = await api<Today>('/today/selection/batch', 'PUT', { date, changes });
+      applyToday(data);
+      setShowSelection(false);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) setUser(null);
+      else await refresh();
+      throw e;
+    } finally {
+      mutationLock.current = false;
+      setBusy(false);
+    }
+  }
   async function draw() {
-    if (active || !pending.length || spinning || busy) return;
+    if (active || !pending.length || spinning || busy || showSelection) return;
     setWheelSnapshot(pool);
     await mutate(async () => {
       const storageKey = `draw-${user!.id}-${today!.date}`;
@@ -448,7 +473,7 @@ export default function App() {
                           rotation={wheelRotation}
                           spinning={spinning}
                           locked={!!active}
-                          disabled={!pending.length || busy || offline}
+                          disabled={!pending.length || busy || offline || showSelection}
                           onDraw={draw}
                         />
                         {active && !spinning ? (
@@ -582,46 +607,22 @@ export default function App() {
                         </div>
                         <button
                           className={`choose-tasks ${showSelection ? 'expanded' : ''}`}
+                          disabled={busy || spinning}
                           onClick={() => setShowSelection(!showSelection)}
                         >
                           <Plus size={17} />
                           从任务库勾选
                           <ChevronDown size={16} />
                         </button>
-                        {(showSelection || !today.items.length) && (
-                          <div className="selection-list">
-                            {tasks
-                              .filter((t) => !t.archived)
-                              .map((task) => {
-                                const item = today.items.find((i) => i.taskId === task.id),
-                                  locked = !!item && item.status !== 'PENDING';
-                                return (
-                                  <label
-                                    className={locked ? 'selection-disabled' : ''}
-                                    key={task.id}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={!!item}
-                                      disabled={locked || busy || offline}
-                                      onChange={(e) => select(task.id, e.target.checked)}
-                                    />
-                                    <span
-                                      className="task-color"
-                                      style={{ background: task.color }}
-                                    />
-                                    <span>{task.title}</span>
-                                    {item?.status === 'COMPLETED' && <small>已完成</small>}
-                                  </label>
-                                );
-                              })}
-                            {!tasks.filter((t) => !t.archived).length && (
-                              <button className="text-button" onClick={() => setAddTask(true)}>
-                                <Plus size={15} />
-                                先创建第一件想做的事
-                              </button>
-                            )}
-                          </div>
+                        {showSelection && (
+                          <TaskSelection
+                            tasks={tasks}
+                            today={today}
+                            disabled={busy || offline}
+                            onSave={saveSelection}
+                            onCancel={() => setShowSelection(false)}
+                            onAdd={() => setAddTask(true)}
+                          />
                         )}
                         {!!today.yesterday.length && (
                           <details className="yesterday">

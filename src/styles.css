@@ -780,6 +780,64 @@ small {
 .selection-disabled {
   opacity: 0.55;
 }
+.selection-editor {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 9px;
+  background: #f1f4ed;
+}
+.selection-editor .selection-list {
+  margin-top: 7px;
+  padding: 0;
+}
+.selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 9px;
+}
+.selection-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.selection-toolbar input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--green);
+  margin: 0;
+}
+.selection-toolbar > span {
+  font-size: 10px;
+  color: #7e8f71;
+}
+.selection-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  margin-top: 7px;
+}
+.selection-footer > span {
+  margin-right: auto;
+  color: #7e8f71;
+  font-size: 9px;
+}
+.selection-footer .button {
+  padding: 7px 12px;
+  min-height: 32px;
+}
+.selection-error {
+  margin-top: 9px;
+  font-size: 11px;
+  color: #a44740;
+  line-height: 1.8;
+}
 .yesterday {
   font-size: 11px;
   color: #93a186;

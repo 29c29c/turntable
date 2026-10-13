@@ -206,6 +206,57 @@ export class Domain {
     });
   }
 
+  async selectMany(userId: string, date: string, changes: { taskId: string; selected: boolean }[]) {
+    return this.locked(userId, async (tx, now, user) => {
+      if (date !== dayKey(now)) throw new AppError(409, '已进入新的一天，请重新勾选今日任务');
+      const day = await this.ensureDay(tx, user, now);
+      const taskIds = changes.map((change) => change.taskId);
+      const tasks = await tx.task.findMany({
+        where: { id: { in: taskIds }, userId, archived: false },
+      });
+      if (tasks.length !== taskIds.length)
+        throw new AppError(404, '任务不存在或已归档，请刷新后重新选择');
+      const existing = await tx.dailyItem.findMany({
+        where: { dayId: day.id, taskId: { in: taskIds } },
+      });
+      const byTask = new Map(existing.map((item) => [item.taskId, item]));
+      for (const change of changes) {
+        const item = byTask.get(change.taskId);
+        if (item && item.status !== 'PENDING' && item.selected !== change.selected) {
+          throw new AppError(409, '抽中的任务必须先完成，已完成的任务当天不能移出');
+        }
+      }
+      const selected = new Set(
+        changes.filter((change) => change.selected).map((change) => change.taskId),
+      );
+      const additions = tasks.filter((task) => selected.has(task.id) && !byTask.has(task.id));
+      if (additions.length)
+        await tx.dailyItem.createMany({
+          data: additions.map((task) => ({
+            dayId: day.id,
+            taskId: task.id,
+            title: task.title,
+            note: task.note,
+            color: task.color,
+            selected: true,
+          })),
+        });
+      const selects = existing
+        .filter((item) => item.status === 'PENDING' && selected.has(item.taskId))
+        .map((item) => item.id);
+      const deselects = existing
+        .filter((item) => item.status === 'PENDING' && !selected.has(item.taskId))
+        .map((item) => item.id);
+      if (selects.length)
+        await tx.dailyItem.updateMany({ where: { id: { in: selects } }, data: { selected: true } });
+      if (deselects.length)
+        await tx.dailyItem.updateMany({
+          where: { id: { in: deselects } },
+          data: { selected: false },
+        });
+    });
+  }
+
   async draw(userId: string, key: string) {
     return this.locked(userId, async (tx, now, user) => {
       const old = await tx.operation.findUnique({ where: { userId_key: { userId, key } } });

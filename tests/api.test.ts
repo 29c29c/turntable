@@ -209,6 +209,89 @@ test('parallel draws choose only one item and retrying a request is idempotent',
   assert.equal(await db.segment.count(), 1);
   assert.equal(await db.dailyItem.count({ where: { status: 'RUNNING' } }), 1);
 });
+test('batch selection adds and removes tasks together, preserves other-device selections, and is repeatable', async () => {
+  const a = await task('第一项'),
+    b = await task('第二项'),
+    c = await task('其他设备选择');
+  await select(c.id);
+  const payload = {
+    date: '2026-10-13',
+    changes: [
+      { taskId: a.id, selected: true },
+      { taskId: b.id, selected: true },
+    ],
+  };
+  assert.equal((await call(user, 'PUT', '/today/selection/batch', payload)).json().items.length, 3);
+  assert.equal((await call(user, 'PUT', '/today/selection/batch', payload)).json().items.length, 3);
+  assert.equal(await db.dailyItem.count(), 3);
+  const result = await call(user, 'PUT', '/today/selection/batch', {
+    date: payload.date,
+    changes: [
+      { taskId: a.id, selected: false },
+      { taskId: b.id, selected: false },
+    ],
+  });
+  assert.deepEqual(
+    result.json().items.map((item: { taskId: string }) => item.taskId),
+    [c.id],
+  );
+});
+test('invalid or locked batch selection rolls back all changes', async () => {
+  const a = await task(),
+    b = await task('待添加');
+  await select(a.id);
+  await draw();
+  const result = await call(user, 'PUT', '/today/selection/batch', {
+    date: '2026-10-13',
+    changes: [
+      { taskId: b.id, selected: true },
+      { taskId: a.id, selected: false },
+    ],
+  });
+  assert.equal(result.statusCode, 409);
+  assert.equal(await db.dailyItem.count(), 1);
+  await call(user, 'POST', `/today/${(await db.dailyItem.findFirstOrThrow()).id}/complete`);
+  assert.equal(
+    (
+      await call(user, 'PUT', '/today/selection/batch', {
+        date: '2026-10-13',
+        changes: [{ taskId: a.id, selected: false }],
+      })
+    ).statusCode,
+    409,
+  );
+  await seedUser(db, 'batch_other');
+  const other = await login('batch_other');
+  assert.equal(
+    (
+      await call(other, 'PUT', '/today/selection/batch', {
+        date: '2026-10-13',
+        changes: [{ taskId: b.id, selected: true }],
+      })
+    ).statusCode,
+    404,
+  );
+});
+test('batch selection rejects duplicate tasks and yesterday drafts without side effects', async () => {
+  const a = await task();
+  const change = { taskId: a.id, selected: true };
+  assert.equal(
+    (
+      await call(user, 'PUT', '/today/selection/batch', {
+        date: '2026-10-13',
+        changes: [change, change],
+      })
+    ).statusCode,
+    400,
+  );
+  now = new Date('2026-10-14T09:00:00+08:00');
+  assert.equal(
+    (await call(user, 'PUT', '/today/selection/batch', { date: '2026-10-13', changes: [change] }))
+      .statusCode,
+    409,
+  );
+  assert.equal(await db.dailyItem.count(), 0);
+});
 test('draw with missing idempotency key or empty pool is rejected', async () => {
   assert.equal((await call(user, 'POST', '/today/draw')).statusCode, 400);
   assert.equal((await draw()).statusCode, 409);

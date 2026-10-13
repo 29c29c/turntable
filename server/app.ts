@@ -277,6 +277,22 @@ export async function buildApp(
     await domain.select(req.currentUser!.id, data.taskId, data.selected);
     return domain.today(req.currentUser!.id);
   });
+  app.put('/api/today/selection/batch', { bodyLimit: 128 * 1024 }, async (req) => {
+    const data = z
+      .object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        changes: z
+          .array(z.object({ taskId: z.string().uuid(), selected: z.boolean() }))
+          .max(1000)
+          .refine(
+            (changes) => new Set(changes.map((change) => change.taskId)).size === changes.length,
+            '任务不能重复',
+          ),
+      })
+      .parse(req.body);
+    await domain.selectMany(req.currentUser!.id, data.date, data.changes);
+    return domain.today(req.currentUser!.id);
+  });
   app.post('/api/today/draw', async (req) => {
     const key = z.string().uuid('缺少有效的请求标识').parse(req.headers['idempotency-key']);
     const item = await domain.draw(req.currentUser!.id, key);

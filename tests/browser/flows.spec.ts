@@ -63,13 +63,51 @@ test('invite registration → tasks → equal random draw → pause/resume → c
     await expect(client.getByRole('dialog')).toHaveCount(0);
   }
   await client.getByRole('button', { name: '我的今天', exact: true }).click();
+  const selectionRequests: string[] = [];
+  client.on('request', (request) => {
+    if (request.method() === 'PUT' && request.url().includes('/api/today/selection'))
+      selectionRequests.push(request.url());
+  });
   for (const title of ['读二十页书', '练习英语', '运动十五分钟', '写下三个想法']) {
     await client.locator('.selection-list').getByLabel(title, { exact: true }).click();
     await expect(
       client.locator('.selection-list').getByLabel(title, { exact: true }),
     ).toBeChecked();
-    await expect(client.locator('.today-row').filter({ hasText: title })).toBeVisible();
+    await expect(client.locator('.today-row')).toHaveCount(0);
   }
+  expect(selectionRequests).toEqual([]);
+  await client.waitForResponse(
+    (response) => response.request().method() === 'GET' && response.url().endsWith('/api/today'),
+  );
+  await expect(client.locator('.selection-list input:checked')).toHaveCount(4);
+  await expect(client.locator('.today-row')).toHaveCount(0);
+  await expect(client.getByRole('checkbox', { name: '全选任务' })).toBeChecked();
+  await client.getByRole('checkbox', { name: '全选任务' }).uncheck();
+  await expect(client.locator('.selection-list input:checked')).toHaveCount(0);
+  await client.getByRole('checkbox', { name: '全选任务' }).check();
+  await expect(client.locator('.selection-list input:checked')).toHaveCount(4);
+  expect(selectionRequests).toEqual([]);
+  await client.screenshot({
+    path: `/tmp/turntable-${testInfo.project.name}-selection.png`,
+    fullPage: true,
+  });
+  await client
+    .locator('.selection-footer')
+    .getByRole('button', { name: '完成', exact: true })
+    .click();
+  await expect(client.locator('.today-row')).toHaveCount(4);
+  await expect(client.locator('.selection-editor')).toHaveCount(0);
+  expect(selectionRequests).toHaveLength(1);
+  expect(selectionRequests[0]).toContain('/selection/batch');
+  await client.getByRole('button', { name: '从任务库勾选' }).click();
+  await client.locator('.selection-list').getByLabel('读二十页书', { exact: true }).uncheck();
+  await expect(client.locator('.today-row')).toHaveCount(4);
+  await client
+    .locator('.selection-footer')
+    .getByRole('button', { name: '取消', exact: true })
+    .click();
+  await expect(client.locator('.today-row')).toHaveCount(4);
+  expect(selectionRequests).toHaveLength(1);
   await client.screenshot({
     path: `/tmp/turntable-${testInfo.project.name}-today.png`,
     fullPage: true,
